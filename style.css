@@ -1,0 +1,48 @@
+*{
+    box-sizing: border-box;
+}
+
+article::after{
+    clear: both;
+    float: none;
+    display: block;
+    content: " ";
+}
+
+h1,
+ h2{
+    margin-left: -3em;
+}
+
+h3{
+    text-align: center;
+    border-bottom: thin solid black;
+}
+
+body{
+    margin-left: 12.5em;
+}
+
+header{
+    max-width: 30em;
+    width: 75vw;
+}
+
+section#ingredients{
+    float: left;
+    max-width: 10em;
+    width: 24vw;
+}
+
+section#instructions{
+    float: left;
+    max-width: 20em;
+    margin-left: 2vw;
+    width: 49vw;
+}
+
+article + article h2{
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: thin solid black;
+}
