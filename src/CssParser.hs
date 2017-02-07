@@ -35,7 +35,7 @@
 module CssParser
   where
 
-import Prelude
+import Prelude hiding (init,fst,length)
 import Control.Monad
 import qualified Text.Parsec as NP
 import Text.ParserCombinators.Parsec
@@ -76,7 +76,7 @@ data CSSSelector =
   deriving (Show,Eq)
 
 matchUpToX :: (Eq a,Num a) => GenParser Char st Char -> a -> GenParser Char st String
-matchUpToX p n = scan id n
+matchUpToX p = scan id
   where
     scan f x = if x == 0
       then return (f [])
@@ -102,14 +102,13 @@ nonascii  = satisfy isNonAscii
 
 unicode :: GenParser Char st String
 unicode = do
-  char '\\'
+  _ <- char '\\'
   result <- match1ToX h (6 :: Integer)
   spaces
   return result
 
 escape :: GenParser Char st String
-escape = (liftM ('\\':) $ try unicode) <|> do
-  char '\\' <:> (many1 $ noneOf "\r\n\f0123456789abcdef")
+escape = liftM ('\\':) (try unicode) <|> char '\\' <:> many1 (noneOf "\r\n\f0123456789abcdef")
 
 nmstart :: GenParser Char st Char
 nmstart = oneOf "-" <|> letter
@@ -128,15 +127,15 @@ w :: GenParser Char st String
 w = many space_
 
 nl :: GenParser Char st String
-nl = (string "\n" <|> (try $ string "\r\n") <|> string "\r" <|> string "\f") >> return "\n"
+nl = (string "\n" <|> try (string "\r\n") <|> string "\r" <|> string "\f") >> return "\n"
 
 genBadString :: Char -> GenParser Char st String
 genBadString c = do
-  char c
-  result <- liftM (foldr (++) []) $
-    many $ (many1 $ noneOf (c:"\n\r\f")) <|> (char '\\' >> nl) <|> escape
-  char '\\'
-  anyChar
+  _ <- char c
+  result <- liftM concat $
+    many $ many1 (noneOf (c:"\n\r\f")) <|> (char '\\' >> nl) <|> escape
+  _ <- char '\\'
+  _ <- anyChar
   return result
 
 badstring :: GenParser Char st String
@@ -145,10 +144,9 @@ badstring = genBadString '"' <|> genBadString '\''
 string_ :: GenParser Char st String
 string_ = do
   a <- char '"' <|> char '\''
-  result <- liftM (foldr (++) []) $ many $ do
-    res <- (try $ char '\\' <:> nl) <|> (try escape) <|> (liftM (:[]) $ noneOf (a:"\n\r\f"))
-    return res
-  char a
+  result <- liftM concat $ many $
+    try (char '\\' <:> nl) <|> try escape <|> liftM (:[]) (noneOf (a:"\n\r\f"))
+  _ <- char a
   return result
 
 -- badcomment, baduri, comment undefined
@@ -159,7 +157,7 @@ ident = do
   head_ <- optionMaybe $ string "-"
   result <- nmstart
   tail_ <- many nmchar
-  return $ (fromMaybe "" head_) ++ (result:tail_)
+  return $ fromMaybe "" head_ ++ (result:tail_)
 
 --tested
 name :: GenParser Char st String
@@ -182,7 +180,7 @@ cdc = string "-->"
 
 -- TODO: figger out if / should be here
 url :: GenParser Char st String
-url = liftM (foldr (++) []) $ many $ many1 (oneOf "!#$%&*-~" <|> nonascii) <|> escape
+url = liftM concat $ many $ many1 (oneOf "!#$%&*-~" <|> nonascii) <|> escape
 
 atEnd :: forall b s u (m :: * -> *) t. (Show t, NP.Stream s m t) => NP.ParsecT s u m b -> NP.ParsecT s u m b
 atEnd p = p >>= ((eof >>) . return)
@@ -190,47 +188,46 @@ atEnd p = p >>= ((eof >>) . return)
 -- partially tested
 urlParse :: GenParser Char st URL
 urlParse = do
-  result <- between (string "url(" >> spaces) (char ')')
-                      (withSpace $ string_ <|> (many1 $ oneOf "=?.,:/" <|> alphaNum) <|> url)
-
+  result <- between (string "url(" >> spaces) (char ')') urlChars
   return $ URLFunc result
-
+  where
+    urlChars = withSpace $ string_ <|> many1 (oneOf "=?.,:/" <|> alphaNum) <|> url
 stylesheet :: GenParser Char st CSSDeclaration
 stylesheet = do -- TODO: allow the letters to be escaped in these strings
   chrset <- charset
   let cset  = case chrset of
               Nothing -> [];
               Just x -> [x]
-  many $ s <|> cdo <|> cdc
+  _ <- many $ s <|> cdo <|> cdc
 
-  imports <- liftM (foldr (++) []) $ many $ do
-    imports <- many1 $ import_
-    many ((cdo >> spaces) <|> (cdc >> spaces))
-    return $ imports
+  imports <- liftM concat $ many $ do
+    imports <- many1 import_
+    _ <- many ((cdo >> spaces) <|> (cdc >> spaces))
+    return imports
 
   result <- many $ ruleset  <|> media <|> page
-  many $ (cdo >> many s) <|> (cdc >> many s)
+  _ <- many $ (cdo >> many s) <|> (cdc >> many s)
 
   return $ DeclarationList $ cset ++ imports ++ result
 
 page :: GenParser Char st CSSDeclaration
 page = do
-  string "@page"
+  _ <- string "@page"
   spaces
-  pseudo_ <- optionMaybe pseudo_page
+  pseudo_ <- optionMaybe pseudoPage
 
   body <- rulebody
   return $ PageDeclaration pseudo_ $ fromList body
 
-pseudo_page :: GenParser Char st String
-pseudo_page = char ':' >> ident >>= (spaces >>) . return 
+pseudoPage :: GenParser Char st String
+pseudoPage = char ':' >> ident >>= (spaces >>) . return 
 
 
 charset :: GenParser Char st (Maybe CSSDeclaration)
 charset = optionMaybe $ do
-  try $ string "@charset "
+  _ <- try $ string "@charset "
   result <- string_
-  char ';'
+  _ <- char ';'
   return $ Charset result
 
 medium :: GenParser Char st String
@@ -241,7 +238,7 @@ mediaList = sepBy medium (char ',' >> spaces)
 
 media :: GenParser Char st CSSDeclaration
 media =  do
-  try $ string "@media"
+  _ <- try $ string "@media"
   spaces
   query <- mediaList
   body <- between (char '{') (char '}') $ do
@@ -253,12 +250,12 @@ media =  do
 
 import_ :: GenParser Char st CSSDeclaration
 import_ = do
-  try $ string "@import "
+  _ <- try $ string "@import "
   spaces
-  result <- (liftM URLString string_) <|> urlParse
+  result <- liftM URLString string_ <|> urlParse
   spaces
-  tail_ <- optionMaybe $ mediaList
-  char ';'
+  tail_ <- optionMaybe mediaList
+  _ <- char ';'
   spaces
   return $ Import $ case tail_ of
     Nothing -> result
@@ -267,7 +264,7 @@ import_ = do
 
 
 cssRule :: GenParser Char st CSSSelector
-cssRule = (sepBy1 selector $ char ',' >> spaces)  >>= (return . SelectorList)
+cssRule = liftM SelectorList (sepBy1 selector $ char ',' >> spaces)
 
 selector :: GenParser Char st CSSSelector
 selector = do
@@ -291,20 +288,21 @@ operator = oneOfWithSpace "/,"
 combinator :: GenParser Char st Char
 combinator = oneOfWithSpace "+>"
 
-unary_operator :: GenParser Char st Char
-unary_operator = oneOf "-+"
+unaryOperator :: GenParser Char st Char
+unaryOperator = oneOf "-+"
 
 -- parse an optional combinator
 parseOCombinator :: CSSSelector -> GenParser Char st CSSSelector
 parseOCombinator head_ = do
   spaces
-  combine <- optionMaybe $ combinator
+  combine <- optionMaybe combinator
   sel <- selector
   return $ case combine of
     Nothing -> Child head_ sel
     (Just x) -> case x of
       '+' -> Sibling head_ sel
       '>' -> DirectChild head_ sel
+      _ -> undefined
 
 -- parse a combinator
 parseCombinator :: CSSSelector -> GenParser Char st CSSSelector
@@ -314,8 +312,7 @@ parseCombinator head_ = do
   return $ case combine of
     '+' -> Sibling head_ sel
     '>' -> DirectChild head_ sel
-
-
+    _ -> undefined
 
 simpleSelector :: GenParser Char st CSSSelector
 simpleSelector = do
@@ -341,8 +338,7 @@ attrib = between (char '[') (char ']') $ do
   spaces
   key <- ident
   spaces
-  char '='
-  value <- ident
+  value <- char '=' >> ident
   spaces
   return $ Attribute key value
 
@@ -352,7 +348,7 @@ pseudo = char ':' >> liftM Pseudo selectorIdent
     selectorIdent = do
       init <- optionMaybe $ string ":"
       idnt <- ident
-      return $ (fromMaybe "" init) ++ idnt
+      return $ fromMaybe "" init ++ idnt
 
 
 {-# ANN (<++>) "HLint: ignore" #-}
@@ -374,17 +370,15 @@ rulebody :: GenParser Char st [(String, String)]
 rulebody = between (withSpace $ char '{') (withSpace $ char '}') $ do
     head_ <- declaration
     tail_ <- many $ do
-      char ';'
-      spaces
+      char ';' >> spaces
       optionMaybe declaration
-    spaces
-    return $ (head_:catMaybes tail_)
+    _ <- spaces
+    return (head_:catMaybes tail_)
 
 declaration :: GenParser Char st (String,String)
 declaration = do
   prop <- property
-  withSpace $ char ':'
-  value <- expr
+  value <- withSpace (char ':') >> expr
   optional prio
   return (prop,value)
 
@@ -405,12 +399,11 @@ expr = do
   return $ fst ++ foldr (\x y -> (' ':x++(' ':y))) [] rst
 
 term :: GenParser Char st String
-term = do
-  withSpace numerical <|> withSpace uri <|> withSpace string_ <|> withSpace ident <|> hexcolor <|> function
+term = withSpace numerical <|> withSpace uri <|> withSpace string_ <|> withSpace ident <|> hexcolor <|> function
 
 numerical :: GenParser Char st String
 numerical = do
-  unop <- optionMaybe unary_operator
+  unop <- optionMaybe unaryOperator
   value <- withSpace (try percentage) <|> withSpace (try length) <|> withSpace (try ems) <|> withSpace (try exs)
            <|> withSpace (try angle) <|> withSpace (try time) <|> withSpace (try freq) <|> withSpace number 
   return $ case unop of
@@ -424,7 +417,7 @@ numerical = do
     percentage = num <++> string "%"
 
     length :: GenParser Char st String
-    length = num <++> (foldr1 (<|>) $ map string ["px", "cm", "mm", "in", "pt", "pc", "rem", "vw", "vh"])
+    length = num <++> foldr1 (<|>) (map string ["px", "cm", "mm", "in", "pt", "pc", "rem", "vw", "vh"])
 
     ems  :: GenParser Char st String
     ems = num <++> string "em"
@@ -450,7 +443,7 @@ function = do
   d <- expr
   _ <- string ")"
   spaces
-  return $ d
+  return d
 
 hexcolor :: GenParser Char st String
 hexcolor = char '#' <:> many1 hexDigit
@@ -458,10 +451,8 @@ hexcolor = char '#' <:> many1 hexDigit
 uri :: GenParser Char st String
 uri = do
   a <- string "url("
-  w
-  result <- try string_ <|> url
-  w
-  d <- string ")"
+  result <- w >> (try string_ <|> url)
+  d <- w >> string ")"
   return $ a ++ result ++ d
 
 
